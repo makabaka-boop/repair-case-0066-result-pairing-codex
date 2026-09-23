@@ -16,8 +16,11 @@ export interface SolverResult {
   totalBenefit: number;
   /** 入选作业在时间轴上的最大同时重叠数 */
   peakOccupancy: number;
-  /** 峰值占用最早发生的那个时间格的有效容量上限 */
-  peakCellLimit: number;
+  /**
+   * 峰值占用最早发生的那个时间格的有效容量上限。
+   * 可选：旧持久化结果可能没有该字段（消费者回退到 capacity/日历最小值）。
+   */
+  peakCellLimit?: number;
   capacity: number;
   /** 入选作业数 */
   selectedCount: number;

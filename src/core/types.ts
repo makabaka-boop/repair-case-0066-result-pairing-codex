@@ -40,8 +40,16 @@ export interface Workspace {
    * 与旧版无该字段的行为完全一致。
    */
   capacityCalendar: CapacityCalendarSegment[];
-  /** 单调递增的数据版本：任何成功的导入或约束修改都会使其 +1 */
+  /** 单调递增的数据版本：约束修改会使其 +1；导入新数据重置为 1 */
   version: number;
+  /**
+   * 数据身份：每次成功导入生成的唯一标识，在该批数据的整个生命周期内
+   * （含约束修改、版本递增）保持不变；导入另一批数据必定得到新的 dataId。
+   * 工作区与求解快照仅在 dataId 与 version 同时相等时才配套——
+   * 仅凭版本号相等不能配对（新导入同样从 version=1 起步）。
+   * 旧本地数据没有该字段：恢复时由 restoreSession 补登并立即回写。
+   */
+  dataId: string;
 }
 
 /** 用户 JSON 中单个作业的原始形态 */

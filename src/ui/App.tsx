@@ -4,14 +4,20 @@ import { JobsTable } from './JobsTable';
 import { ResultPanel } from './ResultPanel';
 import { useSolverWorker } from './useSolverWorker';
 import { createWorkspace, createDepthIndex, applyStatusChange } from '../core/workspace';
-import { loadWorkspace, persistWorkspace } from '../core/persistence';
+import { persistWorkspace, restoreSession } from '../core/persistence';
 import type { IntervalDepthTree } from '../core/segmentTree';
 import type { JobStatus, Workspace } from '../core/types';
 
 export default function App() {
-  const [workspace, setWorkspace] = useState<Workspace | null>(() => loadWorkspace());
+  // 恢复是唯一入口：restoreSession 同时校验工作区与快照并按数据身份配对，
+  // 单键写入、畸形记录、同版本异数据都不会混合成“当前结果”。
+  // 惰性初始化只执行一次（其中旧数据迁移的回写也是幂等的）。
+  const [initialSession] = useState(() =>
+    typeof localStorage !== 'undefined' ? restoreSession() : { workspace: null, snapshot: null },
+  );
+  const [workspace, setWorkspace] = useState<Workspace | null>(initialSession.workspace);
   const [toast, setToast] = useState<{ kind: 'error' | 'ok'; text: string } | null>(null);
-  const { status, run } = useSolverWorker();
+  const { status, run } = useSolverWorker(initialSession.snapshot);
   // 始终指向最新工作区，避免结果面板按钮闭包捕获旧对象
   const workspaceRef = useRef<Workspace | null>(null);
   workspaceRef.current = workspace;
@@ -20,6 +26,7 @@ export default function App() {
   const depthRef = useRef<{
     tree: IntervalDepthTree;
     index: Map<number, number>;
+    dataId: string;
     version: number;
   } | null>(null);
 
@@ -28,8 +35,10 @@ export default function App() {
     (data: ImportSuccess) => {
       const ws = createWorkspace(data);
       const { tree, index } = createDepthIndex(ws);
-      depthRef.current = { tree, index, version: ws.version };
+      depthRef.current = { tree, index, dataId: ws.dataId, version: ws.version };
       setWorkspace(ws);
+      // 先持久化新工作区：任何时刻只写入快照时，恢复侧都因找不到同身份
+      // 工作区而丢弃孤儿快照，旧结果不可能冒充新数据
       persistWorkspace(ws);
       setToast({ kind: 'ok', text: `已导入 ${ws.jobs.length} 项作业，开始自动求解` });
       run(ws);
@@ -39,9 +48,13 @@ export default function App() {
 
   // 刷新（如初次加载已有工作区）时惰性建立索引
   const ensureDepthIndex = useCallback((ws: Workspace) => {
-    if (!depthRef.current || depthRef.current.version !== ws.version) {
+    if (
+      !depthRef.current ||
+      depthRef.current.dataId !== ws.dataId ||
+      depthRef.current.version !== ws.version
+    ) {
       const { tree, index } = createDepthIndex(ws);
-      depthRef.current = { tree, index, version: ws.version };
+      depthRef.current = { tree, index, dataId: ws.dataId, version: ws.version };
     }
     return depthRef.current;
   }, []);
@@ -54,6 +67,7 @@ export default function App() {
         const copy: Workspace = {
           capacity: prev.capacity,
           version: prev.version,
+          dataId: prev.dataId,
           jobs: prev.jobs.map((j) => ({ ...j })),
           capacityCalendar: prev.capacityCalendar,
         };
@@ -64,6 +78,7 @@ export default function App() {
           setToast({ kind: 'error', text: result.rejected });
           return prev; // 旧约束、旧结果全部不变
         }
+        depth.dataId = copy.dataId;
         depth.version = copy.version;
         persistWorkspace(copy);
         return copy;
@@ -84,9 +99,16 @@ export default function App() {
     return () => window.clearTimeout(t);
   }, [toast]);
 
+  // 入选集合只在快照与当前工作区同属一个数据身份时才下发给表格：
+  // 异身份（含求解失败后残留的旧结果）绝不能在新作业上打勾
   const selectedIds = useMemo(
-    () => (status.snapshot ? new Set(status.snapshot.result.selectedIds) : null),
-    [status.snapshot],
+    () =>
+      status.snapshot &&
+      workspace &&
+      status.snapshot.workspaceDataId === workspace.dataId
+        ? new Set(status.snapshot.result.selectedIds)
+        : null,
+    [status.snapshot, workspace],
   );
 
   const counts = useMemo(() => {
@@ -148,6 +170,7 @@ export default function App() {
 
           <ResultPanel
             status={status}
+            workspaceDataId={workspace.dataId}
             workspaceVersion={workspace.version}
             onRecompute={() => {
               const ws = workspaceRef.current;

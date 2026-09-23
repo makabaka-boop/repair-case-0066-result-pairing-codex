@@ -3,7 +3,7 @@ import { isCurrentResponse } from '../src/ui/messages';
 import type { SolverResult } from '../src/core/solver';
 import type { SolveResponse } from '../src/solver/solver.worker';
 
-function success(requestId: number, ids: string[], total: number): SolveResponse {
+function success(requestId: number, ids: string[], total: number, dataId = 'data-X'): SolveResponse {
   const result: SolverResult = {
     selectedIds: ids,
     totalBenefit: total,
@@ -12,7 +12,7 @@ function success(requestId: number, ids: string[], total: number): SolveResponse
     capacity: 1,
     selectedCount: ids.length,
   };
-  return { type: 'success', requestId, result, elapsedMs: 12 };
+  return { type: 'success', requestId, dataId, result, elapsedMs: 12 };
 }
 
 describe('回归：工作区切换时的 worker 响应竞态', () => {

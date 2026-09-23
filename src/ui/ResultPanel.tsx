@@ -4,6 +4,7 @@ import type { SolverStatus } from './useSolverWorker';
 
 interface Props {
   status: SolverStatus;
+  workspaceDataId: string;
   workspaceVersion: number;
   onRecompute: () => void;
 }
@@ -11,13 +12,19 @@ interface Props {
 /**
  * 求解结果区。
  * 关键语义：
- *  - 计算中：显示进行中状态，旧结果仍可见
- *  - 失败：显示错误，不清空最近一次成功结果
- *  - 结果与当前工作区版本不一致时标记“已过期，请重算”
+ *  - 计算中：显示进行中状态，同身份旧结果仍可见
+ *  - 失败：显示错误，不清空最近一次有效结果；按钮立即可再次求解
+ *  - 结果与当前工作区数据身份不一致：不展示、不可下载
+ *    （版本号相同但属于另一批数据时尤其关键）
+ *  - 同身份但版本较旧时标记“已过期，请重算”
  *  - 屏幕显示的集合 = 下载 JSON 中的集合（同一个 buildResultJson 数据源）
  */
-export function ResultPanel({ status, workspaceVersion, onRecompute }: Props) {
-  const snapshot = status.snapshot;
+export function ResultPanel({ status, workspaceDataId, workspaceVersion, onRecompute }: Props) {
+  const rawSnapshot = status.snapshot;
+  // 数据身份闸门：不匹配的快照（理论上状态机已剔除）在此再挡一次，
+  // 保证展示与下载永远只属于当前工作区
+  const snapshot =
+    rawSnapshot && rawSnapshot.workspaceDataId === workspaceDataId ? rawSnapshot : null;
   const stale = snapshot !== null && snapshot.workspaceVersion !== workspaceVersion;
 
   const download = useMemo(() => {
@@ -58,7 +65,9 @@ export function ResultPanel({ status, workspaceVersion, onRecompute }: Props) {
       {status.state === 'error' && status.errorMessage && (
         <div className="error-box" role="alert">
           计算失败：{status.errorMessage}
-          <div className="hint">最近一次成功结果仍保留在下方，未被清空；修正约束后可重算。</div>
+          <div className="hint">
+            同批数据的最近一次有效结果仍保留；当前结果未被清空，可直接再次计算。
+          </div>
         </div>
       )}
 
