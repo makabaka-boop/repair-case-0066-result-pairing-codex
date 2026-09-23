@@ -4,14 +4,21 @@ import { JobsTable } from './JobsTable';
 import { ResultPanel } from './ResultPanel';
 import { useSolverWorker } from './useSolverWorker';
 import { createWorkspace, createDepthIndex, applyStatusChange } from '../core/workspace';
-import { loadWorkspace, persistWorkspace } from '../core/persistence';
+import { persistWorkspace, restoreSession } from '../core/persistence';
+import { relateSnapshot } from '../core/identity';
+import type { SnapshotRelation } from '../core/identity';
 import type { IntervalDepthTree } from '../core/segmentTree';
 import type { JobStatus, Workspace } from '../core/types';
 
 export default function App() {
-  const [workspace, setWorkspace] = useState<Workspace | null>(() => loadWorkspace());
+  // 恢复、展示、下载共享同一数据身份：工作区与快照在此一次性配对，
+  // 任何不匹配（同版本异数据、单键写入混合、畸形快照）都不会进入页面
+  const [initialSession] = useState(() =>
+    typeof localStorage !== 'undefined' ? restoreSession() : null,
+  );
+  const [workspace, setWorkspace] = useState<Workspace | null>(() => initialSession?.workspace ?? null);
   const [toast, setToast] = useState<{ kind: 'error' | 'ok'; text: string } | null>(null);
-  const { status, run } = useSolverWorker();
+  const { status, run } = useSolverWorker(initialSession?.snapshot ?? null);
   // 始终指向最新工作区，避免结果面板按钮闭包捕获旧对象
   const workspaceRef = useRef<Workspace | null>(null);
   workspaceRef.current = workspace;
@@ -32,6 +39,8 @@ export default function App() {
       setWorkspace(ws);
       persistWorkspace(ws);
       setToast({ kind: 'ok', text: `已导入 ${ws.jobs.length} 项作业，开始自动求解` });
+      // run 会识别 dataId 变化：旧批次的快照立即从内存与存储中移除，
+      // 即使自动求解失败，页面也不展示/不允许下载旧作业结果
       run(ws);
     },
     [run],
@@ -50,12 +59,13 @@ export default function App() {
     (jobIndex: number, next: JobStatus) => {
       setWorkspace((prev) => {
         if (!prev) return prev;
-        // 在副本上操作，保证拒绝时旧状态原样保留
+        // 在副本上操作，保证拒绝时旧状态原样保留；dataId 不变
         const copy: Workspace = {
           capacity: prev.capacity,
           version: prev.version,
           jobs: prev.jobs.map((j) => ({ ...j })),
           capacityCalendar: prev.capacityCalendar,
+          dataId: prev.dataId,
         };
         const depth = ensureDepthIndex(prev);
         // 索引基于原工作区坐标；副本坐标完全相同，可复用
@@ -84,10 +94,18 @@ export default function App() {
     return () => window.clearTimeout(t);
   }, [toast]);
 
-  const selectedIds = useMemo(
-    () => (status.snapshot ? new Set(status.snapshot.result.selectedIds) : null),
-    [status.snapshot],
+  // 快照与当前工作区的身份关系：foreign 时整个结果区当作无结果
+  const relation: SnapshotRelation | null = useMemo(
+    () => (status.snapshot && workspace ? relateSnapshot(status.snapshot, workspace) : null),
+    [status.snapshot, workspace],
   );
+
+  // 只高亮属于当前工作区的入选作业，绝不把不存在的作业交给清单/下游
+  const selectedIds = useMemo(() => {
+    if (!status.snapshot || !workspace || relation === null) return null;
+    const ids = new Set(workspace.jobs.map((j) => j.id));
+    return new Set(status.snapshot.result.selectedIds.filter((id) => ids.has(id)));
+  }, [status.snapshot, workspace, relation]);
 
   const counts = useMemo(() => {
     if (!workspace) return { normal: 0, required: 0, excluded: 0 };
@@ -149,6 +167,7 @@ export default function App() {
           <ResultPanel
             status={status}
             workspaceVersion={workspace.version}
+            relation={relation}
             onRecompute={() => {
               const ws = workspaceRef.current;
               if (ws) run(ws);

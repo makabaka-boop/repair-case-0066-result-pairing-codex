@@ -1,5 +1,6 @@
 import { IntervalDepthTree } from './segmentTree';
 import { buildCapacityGrid, findRequiredConflict } from './capacityCalendar';
+import { createDataId } from './identity';
 import type { Capacity, CapacityCalendarSegment, Job, JobStatus, Workspace } from './types';
 
 export interface CreateInput {
@@ -8,7 +9,11 @@ export interface CreateInput {
   capacityCalendar?: CapacityCalendarSegment[];
 }
 
-/** 由校验通过的数据构造全新工作区；作业初始状态均为普通。 */
+/**
+ * 由校验通过的数据构造全新工作区；作业初始状态均为普通。
+ * 每次导入都生成新的数据身份 dataId：即使新批次的版本同样从 1 起步，
+ * 也不会与旧批次的工作区/快照混为同一套数据。
+ */
 export function createWorkspace(input: CreateInput): Workspace {
   const jobs: Job[] = input.jobs.map((j) => ({ ...j, status: 'normal' }));
   return {
@@ -16,6 +21,7 @@ export function createWorkspace(input: CreateInput): Workspace {
     jobs,
     capacityCalendar: input.capacityCalendar ?? [],
     version: 1,
+    dataId: createDataId(),
   };
 }
 

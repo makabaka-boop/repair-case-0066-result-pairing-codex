@@ -179,6 +179,7 @@ describe('持久化：日历随工作区/快照存储，旧数据缺字段保持
     const calendar: CapacityCalendarSegment[] = [{ start: 0, end: 10, available: 1 }];
     const snapshot = {
       workspaceVersion: 3,
+      dataId: 'd_test',
       capacity: 2,
       capacityCalendar: calendar,
       solvedAt: '2026-09-22T00:00:00.000Z',

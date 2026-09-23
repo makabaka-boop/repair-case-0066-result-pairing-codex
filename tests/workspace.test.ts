@@ -123,6 +123,7 @@ describe('结果 JSON：屏幕集合与下载一致', () => {
   it('buildResultJson 直接取 solver 结果，无派生改写', () => {
     const snapshot = {
       workspaceVersion: 4,
+      dataId: 'd_test',
       capacity: 2,
       capacityCalendar: [],
       solvedAt: '2026-09-20T00:00:00.000Z',

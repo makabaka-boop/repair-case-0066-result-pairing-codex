@@ -1,27 +1,35 @@
 import { useMemo } from 'react';
 import { buildResultJson, type StoredSnapshot } from '../core/persistence';
-import type { SolverStatus } from './useSolverWorker';
+import type { SnapshotRelation } from '../core/identity';
+import type { SolverStatus } from './solverSession';
 
 interface Props {
   status: SolverStatus;
   workspaceVersion: number;
+  /** 快照与当前工作区的身份关系；null 表示无归属结果（含 foreign），不展示不下载 */
+  relation: SnapshotRelation | null;
   onRecompute: () => void;
 }
 
 /**
  * 求解结果区。
  * 关键语义：
- *  - 计算中：显示进行中状态，旧结果仍可见
- *  - 失败：显示错误，不清空最近一次成功结果
- *  - 结果与当前工作区版本不一致时标记“已过期，请重算”
+ *  - 计算中：显示进行中状态，同身份旧结果仍可见
+ *  - 失败：显示错误，不清空同身份最近一次成功结果，并可立即重试
+ *  - relation === 'stale'：同批数据的旧版本结果，标记“已过期，请重算”
+ *  - relation === null（含 foreign / 结构畸形）：当作没有结果，
+ *    不展示、不允许下载——任何不匹配快照都不得冒充当前结果
  *  - 屏幕显示的集合 = 下载 JSON 中的集合（同一个 buildResultJson 数据源）
  */
-export function ResultPanel({ status, workspaceVersion, onRecompute }: Props) {
-  const snapshot = status.snapshot;
-  const stale = snapshot !== null && snapshot.workspaceVersion !== workspaceVersion;
+export function ResultPanel({ status, workspaceVersion, relation, onRecompute }: Props) {
+  const rawSnapshot = status.snapshot;
+  // 唯一的“可归属快照”判据：恢复/导入/求解/展示/下载共享同一身份关系
+  const snapshot: StoredSnapshot | null =
+    rawSnapshot && relation !== null && relation !== 'foreign' ? rawSnapshot : null;
+  const stale = relation === 'stale';
 
   const download = useMemo(() => {
-    if (!snapshot) return null;
+    if (!snapshot || status.computing) return null;
     return () => {
       const payload = buildResultJson(snapshot);
       const blob = new Blob([JSON.stringify(payload, null, 2)], {
@@ -34,7 +42,7 @@ export function ResultPanel({ status, workspaceVersion, onRecompute }: Props) {
       a.click();
       URL.revokeObjectURL(url);
     };
-  }, [snapshot]);
+  }, [snapshot, status.computing]);
 
   return (
     <section className="panel result-panel">
@@ -49,7 +57,7 @@ export function ResultPanel({ status, workspaceVersion, onRecompute }: Props) {
           >
             {status.computing ? '计算中…' : snapshot ? '重新计算' : '计算最优排程'}
           </button>
-          <button onClick={() => download?.()} disabled={!snapshot || status.computing}>
+          <button onClick={() => download?.()} disabled={download === null}>
             下载结果 JSON
           </button>
         </div>
@@ -58,7 +66,9 @@ export function ResultPanel({ status, workspaceVersion, onRecompute }: Props) {
       {status.state === 'error' && status.errorMessage && (
         <div className="error-box" role="alert">
           计算失败：{status.errorMessage}
-          <div className="hint">最近一次成功结果仍保留在下方，未被清空；修正约束后可重算。</div>
+          <div className="hint">
+            最近一次同数据的成功结果仍保留在下方，未被清空；修正约束后可立即重算。
+          </div>
         </div>
       )}
 

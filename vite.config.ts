@@ -12,5 +12,12 @@ export default defineConfig({
     environment: 'node',
     include: ['tests/**/*.test.ts'],
     testTimeout: 20000,
+    // 含 5 万作业的性能测试以墙钟时间（3 秒）为门槛；多文件并行会在
+    // CPU 受限环境（容器/CI）相互争抢而产生与代码无关的抖动，固定单进程
+    pool: 'forks',
+    poolOptions: {
+      forks: { singleFork: true },
+    },
+    fileParallelism: false,
   },
 });
